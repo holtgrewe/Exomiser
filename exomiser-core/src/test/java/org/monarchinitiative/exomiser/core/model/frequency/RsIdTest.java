@@ -73,6 +73,19 @@ public class RsIdTest {
     }
 
     @Test
+    public void testValueOfString() {
+        assertThat(RsId.valueOf("rs234567364"), equalTo(instance));
+    }
+
+    @Test
+    public void testNoRsid() {
+        System.out.println(RsId.EMPTY_VALUE);
+        assertThat(RsId.valueOf("."), equalTo(RsId.EMPTY_VALUE));
+        assertThat(RsId.EMPTY_VALUE.toString(), equalTo("."));
+        assertThat(RsId.EMPTY_VALUE.getId(), equalTo(0));
+    }
+
+    @Test
     public void testToString() {
         assertThat(instance.toString(), equalTo("rs" + ID));
     }

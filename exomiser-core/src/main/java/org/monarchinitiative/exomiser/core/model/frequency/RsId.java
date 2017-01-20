@@ -23,23 +23,37 @@ import java.util.Objects;
 
 /**
  * Class representing an NCBI dbSNP reference SNP rsID.
- * 
+ * <p>
  * {@link http://www.ncbi.nlm.nih.gov/projects/SNP/index.html}
- * 
+ *
  * @author Jules Jacobsen <jules.jacobsen@sanger.ac.uk>
  */
 public final class RsId {
-    
+
+    public static final RsId EMPTY_VALUE = new RsId(0);
+    private static final String VCF_EMPTY_VALUE = ".";
+
     private final int id;
 
     public static RsId valueOf(int id) {
         return new RsId(id);
     }
 
+    /**
+     * Parses rs ids from their VCF representation - can be in the form "rs123456" or "." for an empty value.
+     * @param id
+     * @return
+     */
+    public static RsId valueOf(String id) {
+        if (VCF_EMPTY_VALUE.equals(id)) {
+            return EMPTY_VALUE;
+        }
+        return new RsId(Integer.parseInt(id.substring(2)));
+    }
+
     private RsId(int id) {
         this.id = id;
     }
-
 
     public int getId() {
         return id;
@@ -64,6 +78,9 @@ public final class RsId {
 
     @Override
     public String toString() {
+        if (id == 0) {
+            return VCF_EMPTY_VALUE;
+        }
         return "rs" + id;
     }
 }
