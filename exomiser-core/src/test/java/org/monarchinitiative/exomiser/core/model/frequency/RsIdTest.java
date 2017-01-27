@@ -79,10 +79,16 @@ public class RsIdTest {
 
     @Test
     public void testNoRsid() {
-        System.out.println(RsId.EMPTY_VALUE);
-        assertThat(RsId.valueOf("."), equalTo(RsId.EMPTY_VALUE));
-        assertThat(RsId.EMPTY_VALUE.toString(), equalTo("."));
-        assertThat(RsId.EMPTY_VALUE.getId(), equalTo(0));
+        RsId emptyRsId = RsId.empty();
+        System.out.println(emptyRsId);
+        assertThat(RsId.valueOf("."), equalTo(emptyRsId));
+        assertThat(emptyRsId.toString(), equalTo("."));
+        assertThat(emptyRsId.getId(), equalTo(0));
+    }
+
+    @Test
+    public void testConstructorWithZeroValueReutnsEmpty() {
+        assertThat(RsId.valueOf(0), equalTo(RsId.empty()));
     }
 
     @Test

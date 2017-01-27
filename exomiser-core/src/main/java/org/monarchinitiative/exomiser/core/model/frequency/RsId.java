@@ -30,12 +30,15 @@ import java.util.Objects;
  */
 public final class RsId {
 
-    public static final RsId EMPTY_VALUE = new RsId(0);
+    private static final RsId EMPTY_VALUE = new RsId(0);
     private static final String VCF_EMPTY_VALUE = ".";
 
     private final int id;
 
     public static RsId valueOf(int id) {
+        if (id == 0) {
+            return EMPTY_VALUE;
+        }
         return new RsId(id);
     }
 
@@ -57,6 +60,10 @@ public final class RsId {
 
     public int getId() {
         return id;
+    }
+
+    public static RsId empty() {
+        return EMPTY_VALUE;
     }
 
     @Override
