@@ -31,7 +31,7 @@ public class VariantFactoryStub extends VariantFactory {
 
 
     public VariantFactoryStub() {
-        super(new JannovarData(HG19RefDictBuilder.build(), new ImmutableList.Builder<TranscriptModel>().build()));
+        super(new JannovarData(HG19RefDictBuilder.build(), new ImmutableList.Builder<TranscriptModel>().build()), new VariantDataServiceStub());
     }
 
 }

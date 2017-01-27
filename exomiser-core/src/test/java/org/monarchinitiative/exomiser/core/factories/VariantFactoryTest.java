@@ -50,7 +50,7 @@ public class VariantFactoryTest {
 
     public VariantFactoryTest() {
         JannovarData jannovarData = TestFactory.buildDefaultJannovarData();
-        instance = new VariantFactory(jannovarData);
+        instance = new VariantFactory(jannovarData, new VariantDataServiceStub());
     }
 
     private void printVariant(VariantEvaluation variant) {
@@ -61,7 +61,7 @@ public class VariantFactoryTest {
 
     @Test
     public void alternateConstructor() {
-        VariantFactory alternateFactory = new VariantFactory(TestFactory.buildDefaultJannovarData());
+        VariantFactory alternateFactory = new VariantFactory(TestFactory.buildDefaultJannovarData(), new VariantDataServiceStub());
         assertThat(alternateFactory, notNullValue());
     }
 

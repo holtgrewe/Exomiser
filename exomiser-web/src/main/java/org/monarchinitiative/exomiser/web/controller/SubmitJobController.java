@@ -61,6 +61,7 @@ import java.util.*;
 public class SubmitJobController {
 
     private static final Logger logger = LoggerFactory.getLogger(SubmitJobController.class);
+    private static final Path TEMP_DIR = Paths.get(System.getProperty("java.io.tmpdir"));
 
     @Autowired
     private Integer maxVariants;
@@ -135,7 +136,7 @@ public class SubmitJobController {
         Analysis analysis = buildAnalysis(vcfPath, pedPath, proband, diseaseId, phenotypes, geneticInterval, minimumQuality, removeDbSnp, keepOffTarget, keepNonPathogenic, modeOfInheritance, frequency, makeGenesToKeep(genesToFilter), prioritiser);
         AnalysisResults analysisResults = exomiser.run(analysis);
 
-        Path outputDir = Paths.get(System.getProperty("java.io.tmpdir"), analysisId.toString());
+        Path outputDir = TEMP_DIR.resolve(analysisId.toString());
         try {
             Files.createDirectory(outputDir);
         } catch (IOException e) {
@@ -322,11 +323,13 @@ public class SubmitJobController {
     }
 
     private Path createPathFromMultipartFile(MultipartFile multipartFile, String suffix) {
-        Path tempDirPath = Paths.get(System.getProperty("java.io.tmpdir"));
         if (!multipartFile.isEmpty()) {
             logger.info("Uploading multipart file: {}", multipartFile.getOriginalFilename());
             try {
-                Path path = Files.createTempFile(tempDirPath, "exomiser-", suffix);
+                //This will create a file with a random number in the filename so that two files wth the same original name will not clash.
+                //might be a better idea to put all this sort of logic into some kind of FileSystemRepository which can handle duplicates
+                //and hide the internal filesystem.
+                Path path = Files.createTempFile(TEMP_DIR, "exomiser-", suffix);
                 multipartFile.transferTo(path.toFile());
                 return path;
             } catch (IOException e) {

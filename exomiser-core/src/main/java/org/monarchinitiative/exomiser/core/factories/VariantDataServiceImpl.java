@@ -25,6 +25,7 @@ import org.monarchinitiative.exomiser.core.dao.*;
 import org.monarchinitiative.exomiser.core.model.RegulatoryFeature;
 import org.monarchinitiative.exomiser.core.model.TopologicalDomain;
 import org.monarchinitiative.exomiser.core.model.Variant;
+import org.monarchinitiative.exomiser.core.model.VariantData;
 import org.monarchinitiative.exomiser.core.model.frequency.Frequency;
 import org.monarchinitiative.exomiser.core.model.frequency.FrequencyData;
 import org.monarchinitiative.exomiser.core.model.frequency.FrequencySource;
@@ -38,13 +39,11 @@ import org.springframework.stereotype.Service;
 
 import javax.annotation.Resource;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
-import static java.util.stream.Collectors.toSet;
-
 /**
- *
  * @author Jules Jacobsen <jules.jacobsen@sanger.ac.uk>
  */
 @Service
@@ -52,6 +51,8 @@ public class VariantDataServiceImpl implements VariantDataService {
 
     private static final Logger logger = LoggerFactory.getLogger(VariantDataServiceImpl.class);
 
+    @Autowired
+    private VariantDataDaoTabix variantDataDao;
     @Autowired
     private FrequencyDao frequencyDao;
     @Autowired
@@ -66,15 +67,48 @@ public class VariantDataServiceImpl implements VariantDataService {
     private TadDao tadDao;
 
     @Override
+    public VariantData getVariantData(Variant variant, Set<FrequencySource> frequencySources, Set<PathogenicitySource> pathogenicitySources) {
+        VariantData variantData1 = variantDataDao.getVariantData(variant);
+
+        List<PathogenicityScore> allPathScores = new ArrayList<>();
+        final VariantEffect variantEffect = variant.getVariantEffect();
+        //Polyphen, Mutation Taster and SIFT are all trained on missense variants - this is what is contained in the original variant table, but we shouldn't know that.
+        if (variantEffect == VariantEffect.MISSENSE_VARIANT) {
+            PathogenicityData missenseScores = variantData1.getPathogenicityData();
+            allPathScores.addAll(missenseScores.getPredictedPathogenicityScores());
+        } else if (pathogenicitySources.contains(PathogenicitySource.REMM) && variant.isNonCodingVariant()) {
+            //REMM is trained on non-coding regulatory bits of the genome, this outperforms CADD for non-coding variants
+            PathogenicityData nonCodingScore = remmDao.getPathogenicityData(variant);
+            allPathScores.addAll(nonCodingScore.getPredictedPathogenicityScores());
+        }
+        //CADD does all of it although is not as good as REMM for the non-coding regions.
+        if (pathogenicitySources.contains(PathogenicitySource.CADD)) {
+            PathogenicityData caddScore = caddDao.getPathogenicityData(variant);
+            allPathScores.addAll(caddScore.getPredictedPathogenicityScores());
+        }
+
+        PathogenicityData pathogenicityData = pathDataFromSpecifiedDataSources(allPathScores, pathogenicitySources);
+
+        FrequencyData frequencyData = frequencyDataFromSpecifiedSources(variantData1.getFrequencyData(), frequencySources);
+
+        return new VariantData(frequencyData, pathogenicityData);
+    }
+
+    @Override
     public FrequencyData getVariantFrequencyData(Variant variant, Set<FrequencySource> frequencySources) {
         FrequencyData allFrequencyData = frequencyDao.getFrequencyData(variant);
         return frequencyDataFromSpecifiedSources(allFrequencyData, frequencySources);
     }
 
     protected FrequencyData frequencyDataFromSpecifiedSources(FrequencyData allFrequencyData, Set<FrequencySource> frequencySources) {
-        Set<Frequency> wanted = allFrequencyData.getKnownFrequencies().stream()
-                .filter(frequency -> frequencySources.contains(frequency.getSource()))
-                .collect(toSet());
+        List<Frequency> frequencies = allFrequencyData.getKnownFrequencies();
+        Set<Frequency> wanted = new HashSet<>();
+        for (int i = 0; i < frequencies.size(); i++) {
+            Frequency frequency = frequencies.get(i);
+            if (frequencySources.contains(frequency.getSource())) {
+                wanted.add(frequency);
+            }
+        }
         if (allFrequencyData.getRsId() == null && wanted.isEmpty()) {
             return FrequencyData.EMPTY_DATA;
         }
@@ -87,20 +121,21 @@ public class VariantDataServiceImpl implements VariantDataService {
         if (pathogenicitySources.isEmpty()) {
             return PathogenicityData.EMPTY_DATA;
         }
-        //TODO: ideally we'd have some sort of compact, high-performance document store for this sort of data rather than several different datasources to query and ship.
+
         List<PathogenicityScore> allPathScores = new ArrayList<>();
-        final VariantEffect variantEffect = variant.getVariantEffect();
-        //Polyphen, Mutation Taster and SIFT are all trained on missense variants - this is what is contained in the original variant table, but we shouldn't know that.
-        if (variantEffect == VariantEffect.MISSENSE_VARIANT) {
-            PathogenicityData missenseScores = pathogenicityDao.getPathogenicityData(variant);
-            allPathScores.addAll(missenseScores.getPredictedPathogenicityScores());
-        }
-        else if (pathogenicitySources.contains(PathogenicitySource.REMM) && variant.isNonCodingVariant()) {
+//        final VariantEffect variantEffect = variant.getVariantEffect();
+//        //Polyphen, Mutation Taster and SIFT are all trained on missense variants - this is what is contained in the original variant table, but we shouldn't know that.
+//        if (variantEffect == VariantEffect.MISSENSE_VARIANT) {
+//            PathogenicityData missenseScores = pathogenicityDao.getPathogenicityData(variant);
+//            allPathScores.addAll(missenseScores.getPredictedPathogenicityScores());
+//        }
+//        else
+        if (pathogenicitySources.contains(PathogenicitySource.REMM) && variant.isNonCodingVariant()) {
             //REMM is trained on non-coding regulatory bits of the genome, this outperforms CADD for non-coding variants
             PathogenicityData nonCodingScore = remmDao.getPathogenicityData(variant);
             allPathScores.addAll(nonCodingScore.getPredictedPathogenicityScores());
         }
-        
+
         //CADD does all of it although is not as good as REMM for the non-coding regions.
         if (pathogenicitySources.contains(PathogenicitySource.CADD)) {
             PathogenicityData caddScore = caddDao.getPathogenicityData(variant);
@@ -111,9 +146,13 @@ public class VariantDataServiceImpl implements VariantDataService {
     }
 
     protected PathogenicityData pathDataFromSpecifiedDataSources(List<PathogenicityScore> allPathScores, Set<PathogenicitySource> pathogenicitySources) {
-        Set<PathogenicityScore> wanted = allPathScores.stream()
-                .filter(pathogenicity -> pathogenicitySources.contains(pathogenicity.getSource()))
-                .collect(toSet());
+        Set<PathogenicityScore> wanted = new HashSet<>();
+        for (int i = 0; i < allPathScores.size(); i++) {
+            PathogenicityScore score = allPathScores.get(i);
+            if (pathogenicitySources.contains(score.getSource())) {
+                wanted.add(score);
+            }
+        }
         if (wanted.isEmpty()) {
             return PathogenicityData.EMPTY_DATA;
         }

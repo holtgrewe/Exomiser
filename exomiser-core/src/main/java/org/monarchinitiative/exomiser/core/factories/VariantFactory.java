@@ -67,9 +67,12 @@ public class VariantFactory {
     //requirement of a variant having an integer chromosome
     private final int UNKNOWN_CHROMOSOME = 0;
 
+    private final VariantDataService variantDataService;
+
     @Autowired
-    public VariantFactory(JannovarData jannovarData) {
+    public VariantFactory(JannovarData jannovarData, VariantDataService variantDataService) {
         this.variantAnnotator = new VariantContextAnnotator(jannovarData.getRefDict(), jannovarData.getChromosomes());
+        this.variantDataService = variantDataService;
     }
 
     public Stream<VariantContext> streamVariantContexts(Path vcfPath) {
@@ -236,6 +239,8 @@ public class VariantFactory {
         //Attention! highestImpactAnnotation can be null
         Annotation highestImpactAnnotation = variantAnnotations.getHighestImpactAnnotation();
 
+//        VariantData variantData = variantDataService.getVariantData(chr, pos, ref, alt);
+
         return new VariantEvaluation.Builder(chr, pos, ref, alt)
                 //HTSJDK derived data are only used for writing out the
                 //HTML (VariantEffectCounter) VCF/TSV-VARIANT formatted files
@@ -254,6 +259,8 @@ public class VariantFactory {
                 .geneId(buildGeneId(highestImpactAnnotation))
                 .variantEffect(variantEffect)
                 .annotations(buildTranscriptAnnotations(variantAnnotations.getAnnotations()))
+//                .frequencyData(variantData.getFrequencyData())
+//                .pathogenicityData(variantData.getPathogenicityData())
                 .build();
     }
 

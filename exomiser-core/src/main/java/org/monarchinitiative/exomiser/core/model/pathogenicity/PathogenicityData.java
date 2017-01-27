@@ -49,6 +49,14 @@ public class PathogenicityData {
         }
     }
 
+    public static PathogenicityData merge(PathogenicityData... pathData) {
+        List<PathogenicityScore> allScores = new ArrayList<>();
+        for (PathogenicityData data : pathData) {
+            allScores.addAll(data.getPredictedPathogenicityScores());
+        }
+        return new PathogenicityData(allScores);
+    }
+
     public PolyPhenScore getPolyPhenScore() {
         return (PolyPhenScore) getPredictedScore(PathogenicitySource.POLYPHEN);
     }

@@ -147,7 +147,7 @@ abstract class AbstractAnalysisRunner implements AnalysisRunner {
                 .build();
 
         Duration duration = Duration.between(timeStart, Instant.now());
-        long ms = duration.toMillis();
+         long ms = duration.toMillis();
         logger.info("Finished analysis in {}m {}s {}ms ({} ms)", (ms / 1000) / 60 % 60, ms / 1000 % 60, ms % 1000, ms);
         return analysisResults;
     }
@@ -252,11 +252,12 @@ abstract class AbstractAnalysisRunner implements AnalysisRunner {
         List<RegulatoryFeature> regulatoryFeatures = variantDataService.getRegulatoryFeatures();
         ChromosomalRegionIndex<RegulatoryFeature> regulatoryRegionIndex = new ChromosomalRegionIndex<>(regulatoryFeatures);
         logger.info("Loaded {} regulatory regions", regulatoryFeatures.size());
-        VariantFactory variantFactory = new VariantFactory(jannovarData);
+        VariantFactory variantFactory = new VariantFactory(jannovarData, variantDataService);
         //WARNING!!! THIS IS NOT THREADSAFE DO NOT USE PARALLEL STREAMS
         return variantFactory.streamVariantEvaluations(vcfPath).map(setRegulatoryRegionVariantEffect(regulatoryRegionIndex));
     }
 
+    //TODO: move this to the variantFactory
     //Adds the missing REGULATORY_REGION_VARIANT effect to variants - this isn't in the Jannovar data set.
     //This ought to move into the variantFactory/variantDataService
     private Function<VariantEvaluation, VariantEvaluation> setRegulatoryRegionVariantEffect(ChromosomalRegionIndex<RegulatoryFeature> regulatoryRegionIndex) {

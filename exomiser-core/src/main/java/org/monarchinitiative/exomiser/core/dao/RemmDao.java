@@ -36,9 +36,11 @@ import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 
 /**
- *
  * @author Jules Jacobsen <jules.jacobsen@sanger.ac.uk>
  */
 @Component
@@ -55,64 +57,57 @@ public class RemmDao {
 
     @Cacheable(value = "remm", key = "#variant.hgvsGenome")
     public PathogenicityData getPathogenicityData(Variant variant) {
-        // MNCDS has not been trained on missense variants so skip these
+        // REMM has not been trained on missense variants so skip these
         if (variant.getVariantEffect() == VariantEffect.MISSENSE_VARIANT) {
             return PathogenicityData.EMPTY_DATA;
         }
-        return processResults(variant);
-    }
 
-    private PathogenicityData processResults(Variant variant) {
         String chromosome = variant.getChromosomeName();
         int start = variant.getPosition();
         int end = calculateEndPosition(variant);
-        return getRemmData(chromosome, start, end);
+
+        TabixReader.Iterator result = remmTabixReader.query(chromosome + ":" + start + "-" + end);
+        List<Double> scores = getScoresFromResult(result);
+        return scores.stream().max(Double::compareTo)
+                .map(maxScore -> new PathogenicityData(RemmScore.valueOf(maxScore.floatValue())))
+                .orElse(PathogenicityData.EMPTY_DATA);
     }
 
     private int calculateEndPosition(Variant variant) {
-        int end = variant.getPosition();
         //these end positions are calculated according to recommendation by Max and Peter who produced the REMM score
         //don't change this unless they say. 
         if (isDeletion(variant)) {
             // test all deleted bases
-            end += variant.getRef().length();
+            return variant.getPosition() + variant.getRef().length();
         } else if (isInsertion(variant)) {
             // test bases either side of insertion
-            end += 1;
+            return variant.getPosition() + 1;
         }
-        return end;
+        return variant.getPosition();
     }
 
-    private static boolean isDeletion(Variant variant) {
+    private boolean isDeletion(Variant variant) {
         return variant.getAlt().equals("-");
     }
 
-    private static boolean isInsertion(Variant variant) {
+    private boolean isInsertion(Variant variant) {
         return variant.getRef().equals("-");
     }
-    
-    private PathogenicityData getRemmData(String chromosome, int start, int end) throws NumberFormatException {
+
+    private List<Double> getScoresFromResult(TabixReader.Iterator results) {
+        String line = null;
         try {
-            float ncds = Float.NaN;
-            String line;
-//            logger.info("Running tabix with " + chromosome + ":" + start + "-" + end);
-            TabixReader.Iterator results = remmTabixReader.query(chromosome + ":" + start + "-" + end);
+            List<Double> scores = new ArrayList<>();
             while ((line = results.next()) != null) {
                 String[] elements = line.split("\t");
-                if (Float.isNaN(ncds)) {
-                    ncds = Float.parseFloat(elements[2]);
-                } else {
-                    ncds = Math.max(ncds, Float.parseFloat(elements[2]));
-                }
+                scores.add(Double.valueOf(elements[2]));
             }
-            //logger.info("Final score " + ncds);
-            if (!Float.isNaN(ncds)) {
-                return new PathogenicityData(RemmScore.valueOf(ncds));
-            }
+            return scores;
         } catch (IOException e) {
             logger.error("Unable to read from REMM tabix file {}", remmTabixReader.getSource(), e);
+        } catch (NumberFormatException | ArrayIndexOutOfBoundsException e) {
+            logger.error("Unable to parse line '{}' from REMM tabix file {}", line, remmTabixReader.getSource(), e);
         }
-        return new PathogenicityData();
+        return Collections.emptyList();
     }
-
 }

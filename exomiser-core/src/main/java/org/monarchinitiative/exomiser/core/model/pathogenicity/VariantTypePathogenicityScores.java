@@ -100,9 +100,9 @@ public abstract class VariantTypePathogenicityScores {
             case INTERNAL_FEATURE_ELONGATION:
             case COMPLEX_SUBSTITUTION:
                 return NONFRAMESHIFT_INDEL_SCORE;
-            case SPLICE_ACCEPTOR_VARIANT:
-            case SPLICE_DONOR_VARIANT:
-            case SPLICE_REGION_VARIANT:
+            case SPLICE_ACCEPTOR_VARIANT: // -1,-2 (last two bases of intron)
+            case SPLICE_DONOR_VARIANT: /// +1, +2 - (first two bases of intron) make 1.0
+            case SPLICE_REGION_VARIANT: //TODO: reconsider score for region +3
                 return SPLICING_SCORE;
             case START_LOST:
                 return STARTLOSS_SCORE;

@@ -1,9 +1,10 @@
 package org.monarchinitiative.exomiser.core.filters;
 
 import org.monarchinitiative.exomiser.core.factories.VariantDataService;
+import org.monarchinitiative.exomiser.core.model.VariantData;
 import org.monarchinitiative.exomiser.core.model.VariantEvaluation;
-import org.monarchinitiative.exomiser.core.model.frequency.FrequencyData;
 import org.monarchinitiative.exomiser.core.model.frequency.FrequencySource;
+import org.monarchinitiative.exomiser.core.model.pathogenicity.PathogenicitySource;
 
 import java.util.EnumSet;
 import java.util.Set;
@@ -16,6 +17,7 @@ import java.util.Set;
  */
 public class FrequencyDataProvider extends AbstractFilterDataProvider {
 
+    public static final Set<PathogenicitySource> PATHOGENICITY_SOURCES = EnumSet.of(PathogenicitySource.SIFT, PathogenicitySource.MUTATION_TASTER, PathogenicitySource.POLYPHEN, PathogenicitySource.REMM, PathogenicitySource.CADD);
     private final Set<FrequencySource> frequencySources;
 
     public FrequencyDataProvider(VariantDataService variantDataService, Set<FrequencySource> frequencySources, VariantFilter variantFilter) {
@@ -33,8 +35,11 @@ public class FrequencyDataProvider extends AbstractFilterDataProvider {
         //check there are no frequencies first - this may be genuine, or possibly the variant hasn't yet had the data added
         //this will cut down on trips to the database if multiple filters require frequency data.
         if (variantEvaluation.getFrequencyData().getKnownFrequencies().isEmpty()) {
-            FrequencyData frequencyData = variantDataService.getVariantFrequencyData(variantEvaluation, frequencySources);
-            variantEvaluation.setFrequencyData(frequencyData);
+//            FrequencyData frequencyData = variantDataService.getVariantFrequencyData(variantEvaluation, frequencySources);
+//            variantEvaluation.setFrequencyData(frequencyData);
+            VariantData variantData = variantDataService.getVariantData(variantEvaluation, frequencySources, PATHOGENICITY_SOURCES);
+            variantEvaluation.setFrequencyData(variantData.getFrequencyData());
+            variantEvaluation.setPathogenicityData(variantData.getPathogenicityData());
         }
     }
     

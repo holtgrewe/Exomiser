@@ -39,6 +39,7 @@ import org.monarchinitiative.exomiser.core.model.pathogenicity.RemmScore;
 
 import java.io.IOException;
 import java.util.Arrays;
+import java.util.Collections;
 
 import static org.hamcrest.CoreMatchers.equalTo;
 import static org.hamcrest.MatcherAssert.assertThat;
@@ -64,14 +65,15 @@ public class RemmDaoTest {
     }
 
     private static VariantEvaluation variant(int chr, int pos, String ref, String alt) {
+        VariantEvaluation.Builder builder = new VariantEvaluation.Builder(chr, pos, ref, alt)
+                .variantEffect(VariantEffect.REGULATORY_REGION_VARIANT);
+
         if (ref.equals("-") || alt.equals("-")) {
-            //this is used to get round the fact that in real life the variant evaluation 
+            //this is used to get round the fact that in real life the variant evaluation
             //is built from a variantContext and some variantAnnotations
-            return new VariantEvaluation.Builder(chr, pos, ref, alt)
-                    .variantContext(Mockito.mock(VariantContext.class))
-                    .build();
+            return builder.variantContext(Mockito.mock(VariantContext.class)).build();
         }
-        return new VariantEvaluation.Builder(chr, pos, ref, alt).variantEffect(VariantEffect.REGULATORY_REGION_VARIANT).build();
+        return builder.build();
     }
     
     @Test
@@ -83,13 +85,29 @@ public class RemmDaoTest {
     
     @Test
     public void testGetPathogenicityData_unableToReadFromSource() {
-        Mockito.when(remmTabixReader.query("1:1-1")).thenThrow(IOException.class);
+        Mockito.when(remmTabixReader.query("1:1-1")).thenReturn(() -> {
+            throw new IOException();
+        });
         assertThat(instance.getPathogenicityData(variant(1, 1, "A", "T")), equalTo(PathogenicityData.EMPTY_DATA));
     }
-    
+
+    @Test
+    public void testGetPathogenicityData_NumberFormatException() {
+        MockTabixIterator mockIterator = new MockTabixIterator(Collections.singletonList("1\t1\tWIBBLE!"));
+        Mockito.when(remmTabixReader.query("1:1-1")).thenReturn(mockIterator);
+        assertThat(instance.getPathogenicityData(variant(1, 1, "A", "T")), equalTo(PathogenicityData.EMPTY_DATA));
+    }
+
+    @Test
+    public void testGetPathogenicityData_ArrayIndexException() {
+        mockIterator.setValues(Collections.singletonList("1\t1"));
+        Mockito.when(remmTabixReader.query("1:1-1")).thenReturn(mockIterator);
+        assertThat(instance.getPathogenicityData(variant(1, 1, "A", "T")), equalTo(PathogenicityData.EMPTY_DATA));
+    }
+
     @Test
     public void testGetPathogenicityData_singleNucleotideVariationNoData() {
-        mockIterator.setValues(Arrays.asList());
+        mockIterator.setValues(Collections.emptyList());
         Mockito.when(remmTabixReader.query("1:1-1")).thenReturn(mockIterator);
 
         assertThat(instance.getPathogenicityData(variant(1, 1, "A", "T")), equalTo(PathogenicityData.EMPTY_DATA));
@@ -97,7 +115,7 @@ public class RemmDaoTest {
     
     @Test
     public void testGetPathogenicityData_singleNucleotideVariation() {
-        mockIterator.setValues(Arrays.asList("1\t1\t1.0"));
+        mockIterator.setValues(Collections.singletonList("1\t1\t1.0"));
         Mockito.when(remmTabixReader.query("1:1-1")).thenReturn(mockIterator);
 
         assertThat(instance.getPathogenicityData(variant(1, 1, "A", "T")), equalTo(new PathogenicityData(RemmScore.valueOf(1f))));

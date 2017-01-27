@@ -403,6 +403,7 @@ public class AnalysisParser {
                 throw new AnalysisParserException("Frequency filter requires a list of frequency sources for the analysis e.g. frequencySources: [THOUSAND_GENOMES, ESP_ALL]", options);
             }
             return new FrequencyDataProvider(variantDataService, EnumSet.copyOf(sources), new FrequencyFilter(maxFreq.floatValue()));
+//            return new FrequencyFilter(maxFreq.floatValue());
         }
 
         private Double getMaxFrequency(Map<String, Object> options) {
@@ -441,7 +442,8 @@ public class AnalysisParser {
             if (sources.isEmpty()) {
                 throw new AnalysisParserException("Pathogenicity filter requires a list of pathogenicity sources for the analysis e.g. {pathogenicitySources: [SIFT, POLYPHEN, MUTATION_TASTER]}", options);
             }
-            return new PathogenicityDataProvider(variantDataService, EnumSet.copyOf(sources), new PathogenicityFilter(keepNonPathogenic));
+//            return new PathogenicityDataProvider(variantDataService, EnumSet.copyOf(sources), new PathogenicityFilter(keepNonPathogenic));
+            return new PathogenicityFilter(keepNonPathogenic);
         }
 
         private Set<PathogenicitySource> parsePathogenicitySources(Map<String, Object> options) {
