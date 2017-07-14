@@ -27,6 +27,7 @@ package org.monarchinitiative.exomiser.core.genome;
 import org.monarchinitiative.exomiser.core.model.RegulatoryFeature;
 import org.monarchinitiative.exomiser.core.model.TopologicalDomain;
 import org.monarchinitiative.exomiser.core.model.Variant;
+import org.monarchinitiative.exomiser.core.model.VariantData;
 import org.monarchinitiative.exomiser.core.model.frequency.FrequencyData;
 import org.monarchinitiative.exomiser.core.model.frequency.FrequencySource;
 import org.monarchinitiative.exomiser.core.model.pathogenicity.PathogenicityData;
@@ -40,6 +41,10 @@ import java.util.Set;
  * @author Jules Jacobsen <jules.jacobsen@sanger.ac.uk>
  */
 public interface VariantDataService {
+
+    public default VariantData getVariantData(Variant variant, Set<FrequencySource> frequencySources, Set<PathogenicitySource> pathogenicitySources) {
+        return VariantData.empty();
+    }
 
     FrequencyData getVariantFrequencyData(Variant variant, Set<FrequencySource> frequencySources);
 

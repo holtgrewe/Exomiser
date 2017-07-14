@@ -89,7 +89,7 @@
         <sonar.language>java</sonar.language>
         <jannovar.version>0.21</jannovar.version>
         <guava.version>21.0</guava.version>
-        <spring-boot.version>1.4.1.RELEASE</spring-boot.version>
+        <spring-boot.version>1.5.4.RELEASE</spring-boot.version>
     </properties>
  
     <repositories>
@@ -108,7 +108,7 @@
             <dependency>
                 <groupId>io.spring.platform</groupId>
                 <artifactId>platform-bom</artifactId>
-                <version>Athens-RELEASE</version>
+                <version>Brussels-SR2</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
