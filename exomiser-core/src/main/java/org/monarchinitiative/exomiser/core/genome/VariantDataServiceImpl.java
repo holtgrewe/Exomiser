@@ -25,7 +25,6 @@ import org.monarchinitiative.exomiser.core.genome.dao.*;
 import org.monarchinitiative.exomiser.core.model.RegulatoryFeature;
 import org.monarchinitiative.exomiser.core.model.TopologicalDomain;
 import org.monarchinitiative.exomiser.core.model.Variant;
-import org.monarchinitiative.exomiser.core.model.VariantData;
 import org.monarchinitiative.exomiser.core.model.frequency.Frequency;
 import org.monarchinitiative.exomiser.core.model.frequency.FrequencyData;
 import org.monarchinitiative.exomiser.core.model.frequency.FrequencySource;
@@ -57,11 +56,12 @@ public class VariantDataServiceImpl implements VariantDataService {
     @Autowired
     private VariantDataDao variantDataDao;
 
-    @Resource(name = "defaultFrequencyDao")
+    @Resource(name = "frequencyDaoTabix")
     private FrequencyDao defaultFrequencyDao;
     @Resource(name = "localFrequencyDao")
     private FrequencyDao localFrequencyDao;
-    @Autowired
+
+    @Resource(name = "pathogenicityDaoTabix")
     private PathogenicityDao pathogenicityDao;
     @Resource(name = "caddDao")
     private CaddDao caddDao;
@@ -75,9 +75,9 @@ public class VariantDataServiceImpl implements VariantDataService {
     @Override
     public FrequencyData getVariantFrequencyData(Variant variant, Set<FrequencySource> frequencySources) {
         List<Frequency> allFrequencies = new ArrayList<>();
-        VariantData variantData = variantDataDao.getVariantData(variant);
-        FrequencyData allFrequencyData = variantData.getFrequencyData();
-//        FrequencyData allFrequencyData = defaultFrequencyDao.getFrequencyData(variant);
+//        VariantData variantData = variantDataDao.getVariantData(variant);
+//        FrequencyData allFrequencyData = variantData.getFrequencyData();
+        FrequencyData allFrequencyData = defaultFrequencyDao.getFrequencyData(variant);
         allFrequencies.addAll(allFrequencyData.getKnownFrequencies());
 
         if (frequencySources.contains(FrequencySource.LOCAL)) {
@@ -109,9 +109,9 @@ public class VariantDataServiceImpl implements VariantDataService {
         final VariantEffect variantEffect = variant.getVariantEffect();
         //Polyphen, Mutation Taster and SIFT are all trained on missense variants - this is what is contained in the original variant table, but we shouldn't know that.
         if (variantEffect == VariantEffect.MISSENSE_VARIANT) {
-            VariantData variantData = variantDataDao.getVariantData(variant);
-            PathogenicityData missenseScores = variantData.getPathogenicityData();
-//            PathogenicityData missenseScores = pathogenicityDao.getPathogenicityData(variant);
+//            VariantData variantData = variantDataDao.getVariantData(variant);
+//            PathogenicityData missenseScores = variantData.getPathogenicityData();
+            PathogenicityData missenseScores = pathogenicityDao.getPathogenicityData(variant);
             allPathScores.addAll(missenseScores.getPredictedPathogenicityScores());
         }
         else if (pathogenicitySources.contains(PathogenicitySource.REMM) && variant.isNonCodingVariant()) {
