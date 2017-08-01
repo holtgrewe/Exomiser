@@ -160,7 +160,7 @@ public class VCF2FrequencyParser {
             //This was causing indels to be missed as the minimising ends up producing output which isn't compatible.
             //given we're ingesting VCF, outputting VCF and all the frequency data is coming from VCF, we'll use VCF standard.
             //Annotations will still come from Jannovar and these are right-shifted as opposed to left-shifted.
-            AllelePosition minimisedAllele = AllelePosition.minimise(pos, ref, alt);
+            AllelePosition minimisedAllele = AllelePosition.trim(pos, ref, alt);
             Frequency freq = new Frequency(chrom, minimisedAllele.getPos(), minimisedAllele.getRef(), minimisedAllele.getAlt(), rsId);
             if (ea != 0f){   
                 freq.setESPFrequencyEA(ea);
@@ -211,42 +211,6 @@ public class VCF2FrequencyParser {
             minorAlleleCounter++;
         }
         return frequencyList;
-    }
-
-    /**
-     * VCF files and Annovar-style annotations use different nomenclature for
-     * indel variants. This function transforms the {@link #ref},
-     * {@link #alt}, and {@link #pos} fields from VCF style to Annovar style. It
-     * should be used once for each VCF line and should be called only from the
-     * method {@link #parseVCFline}.
-     */
-    private void transformVCF2AnnovarCoordinates(int pos, String ref, String alt) {
-        if (ref.length() == 1 && alt.length() == 1) {
-            // i.e., single nucleotide variant
-            // In this case, no changes are needed.
-            return;
-        } else if (ref.length() > alt.length()) {
-            // deletion or block substitution
-            String head = ref.substring(0, alt.length());
-            //For instance, if we have ref=TCG, alt=T, there is a two nt
-            // deletion, and head is "T"
-
-            if (head.equals(alt)) {
-                pos = pos + head.length();
-                //this advances to position of mutation
-                ref = ref.substring(alt.length());
-                alt = "-";
-            }
-        } else if (alt.length() >= ref.length()) {
-            //insertion or block substitution
-            String head = alt.substring(0, ref.length());
-             // get first L nt of ALT (where L is length of REF)
-            if (head.equals(ref)) {
-                pos = pos + ref.length() - 1;
-                alt = alt.substring(ref.length());
-                ref = "-";
-            }
-        }
     }
 
     /**
