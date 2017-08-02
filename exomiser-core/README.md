@@ -80,3 +80,88 @@ Conclusions
 ====
 
 H2 is fast, but large, Tabix is slow but compact! Will stick with H2 for the time being as it seems best to aim for speed of analysis.
+
+Second Approach - Two Tabix Sources
+====
+Using a slightly easier approach where the variant and frequency tables were replaced with a pathogenicity and frequency tabix file and the DAOs were replaced with a Tabix implementation.
+
+Storage | Size on disk (GB) | Total runtime for POMP sample (min)
+------------ | ------------- | -----------------
+H2 | 28 | 3:40 (2:40 variant loading/filtering)
+Tabix | 3.2 (freq=2.5, path=0.6) | 8:40 (7:40 variant loading/filtering)
+
+This seems like a reasonable compromise, its about half the speed of H2, but the storage space makes up for it. For gnomAD, we might not have the choice. 
+
+It might also be worth splitting the frequencies into separate chromosome tabix files to improve search speed and space could be further improved by using a BCF-lite approach in the INFO field and using the enum ordinal instead of the string representation.
+
+ 
+Producing the Tabix files
+====
+Pathogenicity:
+```bash
+$ java -XX:+UseG1GC -Xmx6G -jar org.monarchinitiative.exomiser.allelestore.AlleleStoreApplication --working-dir=. --loadDbNsfp=dbNSFPv3.4a.zip --out=exomiser-path.vcf
+2017-08-02 11:43:04.574  INFO 10968 --- [           main] o.m.e.a.AlleleStoreApplication           : Starting AlleleStoreApplication
+2017-08-02 12:06:20.248  INFO 10968 --- [           main] o.m.exomiser.allelestore.AlleleImporter  : Finished - processed 81191461 variants total in 1393 sec
+2017-08-02 12:06:20.249  INFO 10968 --- [           main] o.m.exomiser.allelestore.AlleleImporter  : Merging alleles to file exomiser-path.vcf
+2017-08-02 12:21:03.761  INFO 10968 --- [           main] o.m.exomiser.allelestore.AlleleImporter  : Done
+2017-08-02 12:21:03.765  INFO 10968 --- [           main] o.m.e.a.AlleleStoreApplication           : Started AlleleStoreApplication in 2280.238 seconds (JVM running for 2280.969)
+
+$ tabix -p vcf exomiser-path.vcf
+```
+Frequencies:
+```bash
+$ java -XX:+UseG1GC -Xmx10G -jar org.monarchinitiative.exomiser.allelestore.AlleleStoreApplication -working-dir=. --loadDbSnp=00-All.vcf.gz --loadExac=ExAC.r0.3.1.sites.vep.vcf.gz --loadEsp=ESP6500SI-V2-SSA137.GRCh38-liftover.snps_indels.vcf.tar.gz --out=exomiser-freq.vcf
+2017-08-02 13:20:47.137  INFO 18088 --- [           main] o.m.e.a.AlleleStoreApplication           : Starting AlleleStoreApplication
+2017-08-02 13:20:48.827  INFO 18088 --- [           main] o.m.exomiser.allelestore.AlleleImporter  : Loading ExAC
+2017-08-02 13:26:12.088  INFO 18088 --- [           main] o.m.exomiser.allelestore.AlleleImporter  : Finished - processed 10195872 variants total in 323 sec
+2017-08-02 13:26:12.089  INFO 18088 --- [           main] o.m.exomiser.allelestore.AlleleImporter  : Loading dbSNP
+2017-08-02 13:48:31.290  INFO 18088 --- [           main] o.m.exomiser.allelestore.AlleleImporter  : Finished - processed 252387198 variants total in 1339 sec
+2017-08-02 13:48:31.290  INFO 18088 --- [           main] o.m.exomiser.allelestore.AlleleImporter  : Loading ESP
+2017-08-02 13:49:31.006  INFO 18088 --- [           main] o.m.exomiser.allelestore.AlleleImporter  : Finished - processed 254385402 variants total in 59 sec
+2017-08-02 13:49:31.006  INFO 18088 --- [           main] o.m.exomiser.allelestore.AlleleImporter  : Merging alleles to file exomiser-freq.vcf
+2017-08-02 14:49:06.495  INFO 18088 --- [           main] o.m.exomiser.allelestore.AlleleImporter  : Done
+2017-08-02 14:49:06.516  INFO 18088 --- [           main] o.m.e.a.AlleleStoreApplication           : Started AlleleStoreApplication in 5300.418 seconds (JVM running for 5301.153)
+
+$ tabix -p vcf exomiser-freq.vcf
+```
+
+ POMP sample analysis script used
+ =====
+```yaml
+     ---
+     analysis:
+         vcf: data/NA19722_601952_AUTOSOMAL_RECESSIVE_POMP_13_29233225_5UTR_38.vcf.gz
+         ped:
+         modeOfInheritance: AUTOSOMAL_RECESSIVE
+         analysisMode: PASS_ONLY 
+         hpoIds: ['HP:0000982',
+                 'HP:0001036',
+                 'HP:0001367',
+                 'HP:0001795',
+                 'HP:0007465',
+                 'HP:0007479',
+                 'HP:0007490',
+                 'HP:0008064',
+                 'HP:0008404',
+                 'HP:0009775']
+         frequencySources: [
+             THOUSAND_GENOMES,
+             ESP_AFRICAN_AMERICAN, ESP_EUROPEAN_AMERICAN, ESP_ALL,
+             EXAC_AFRICAN_INC_AFRICAN_AMERICAN, EXAC_AMERICAN,
+             EXAC_SOUTH_ASIAN, EXAC_EAST_ASIAN,
+             EXAC_FINNISH, EXAC_NON_FINNISH_EUROPEAN,
+             EXAC_OTHER
+             ]
+         pathogenicitySources: [POLYPHEN, MUTATION_TASTER, SIFT, REMM]
+         #this is the recommended order for a genome-sized analysis.
+         steps: [ 
+             hiPhivePrioritiser: {},
+             priorityScoreFilter: {priorityType: HIPHIVE_PRIORITY, minPriorityScore: 0.501},
+             variantEffectFilter: {remove: [SYNONYMOUS_VARIANT]},
+             regulatoryFeatureFilter: {},
+             frequencyFilter: {maxFrequency: 1.0},
+             pathogenicityFilter: {keepNonPathogenic: true},
+             inheritanceFilter: {},
+             omimPrioritiser: {}
+          ]
+```
