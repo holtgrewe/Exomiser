@@ -25,14 +25,14 @@ public class PathogenicityDaoTabix implements PathogenicityDao {
 
     private static final String EMPTY_FIELD = ".";
 
-    private TabixReader tabixReader = null;
+    private TabixDataSource tabixDataSource;
 
     public PathogenicityDaoTabix() {
         try {
-            tabixReader = new TabixReader("C:/Users/hhx640/Documents/exomiser-8.0.0/data/exomiser-path.vcf.gz");
-            logger.info("Reading variant data from tabix {}", tabixReader.getSource());
+            tabixDataSource = new TabixReaderAdaptor(new TabixReader("C:/Users/hhx640/Documents/exomiser-8.0.0/data/exomiser-path.vcf.gz"));
+            logger.info("Reading variant data from tabix {}", tabixDataSource.getSource());
         } catch (IOException e) {
-            e.printStackTrace();
+            logger.error("Unable to load pathogenicity tabix datasource", e);
         }
     }
 
@@ -47,7 +47,9 @@ public class PathogenicityDaoTabix implements PathogenicityDao {
             return PathogenicityData.empty();
         }
 
-        String chromosome = variant.getChromosomeName();
+        //the exomiser tabix files use the integer representation of the chromosome
+        String chromosome = Integer.toString(variant.getChromosome());
+//        String chromosome = variant.getChromosomeName();
         int start = variant.getPosition();
         int end = variant.getPosition();
         return getPathogenicityData(chromosome, start, end, variant.getRef(), variant.getAlt());
@@ -62,14 +64,14 @@ public class PathogenicityDaoTabix implements PathogenicityDao {
                 if (EMPTY_FIELD.equals(elements[2]) && EMPTY_FIELD.equals(elements[7])) {
                     return PathogenicityData.empty();
                 }
-                Map<String, Float> values = mapInfoFields(elements[7]);
+                Map<String, Float> values = infoFieldToMap(elements[7]);
                 return parsePathogenicityData(values);
             }
         }
         return PathogenicityData.empty();
     }
 
-    private Map<String, Float> mapInfoFields(String info) {
+    private Map<String, Float> infoFieldToMap(String info) {
         String[] infoFields = info.split(";");
         Map<String, Float> values = new HashMap<>();
         for (String infoField : infoFields) {
@@ -103,12 +105,12 @@ public class PathogenicityDaoTabix implements PathogenicityDao {
         List<String> lines = new ArrayList<>();
         try {
             String line;
-            TabixReader.Iterator results = tabixReader.query(chromosome + ":" + start + "-" + end);
+            TabixReader.Iterator results = tabixDataSource.query(chromosome + ":" + start + "-" + end);
             while ((line = results.next()) != null) {
                 lines.add(line);
             }
         } catch (IOException e) {
-            logger.error("Unable to read from exomiser tabix file {}", tabixReader.getSource(), e);
+            logger.error("Unable to read from exomiser tabix file {}", tabixDataSource.getSource(), e);
         }
         return lines;
     }

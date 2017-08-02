@@ -43,21 +43,23 @@ public class FrequencyDaoTabix implements FrequencyDao {
         FREQUENCY_SOURCE_MAP.put("EXAC_OTH", FrequencySource.EXAC_OTHER);
     }
 
-    private TabixReader tabixReader = null;
+    private TabixDataSource tabixDataSource;
 
     public FrequencyDaoTabix() {
         try {
-            tabixReader = new TabixReader("C:/Users/hhx640/Documents/exomiser-8.0.0/data/exomiser-freq.vcf.gz");
-            logger.info("Reading variant data from tabix {}", tabixReader.getSource());
+            tabixDataSource = new TabixReaderAdaptor(new TabixReader("C:/Users/hhx640/Documents/exomiser-8.0.0/data/exomiser-freq.vcf.gz"));
+            logger.info("Reading variant data from tabix {}", tabixDataSource.getSource());
         } catch (IOException e) {
-            e.printStackTrace();
+            logger.error("Unable to load frequency tabix datasource", e);
         }
     }
 
     @Cacheable(value = "frequency")
     @Override
     public FrequencyData getFrequencyData(Variant variant) {
-        String chromosome = variant.getChromosomeName();
+        //the exomiser tabix files use the integer representation of the chromosome
+        String chromosome = Integer.toString(variant.getChromosome());
+//        String chromosome = variant.getChromosomeName();
         int start = variant.getPosition();
         int end = variant.getPosition();
         return getFrequencyData(chromosome, start, end, variant.getRef(), variant.getAlt());
@@ -72,7 +74,7 @@ public class FrequencyDaoTabix implements FrequencyDao {
                 if (EMPTY_FIELD.equals(elements[2]) && EMPTY_FIELD.equals(elements[7])) {
                     return FrequencyData.empty();
                 }
-                Map<String, Float> values = mapInfoFields(elements[7]);
+                Map<String, Float> values = infoFieldToMap(elements[7]);
                 RsId rsId = RsId.valueOf(elements[2]);
                 List<Frequency> frequencies = parseFrequencyData(values);
                 return FrequencyData.of(rsId, frequencies);
@@ -81,7 +83,7 @@ public class FrequencyDaoTabix implements FrequencyDao {
         return FrequencyData.empty();
     }
 
-    private Map<String, Float> mapInfoFields(String info) {
+    private Map<String, Float> infoFieldToMap(String info) {
         String[] infoFields = info.split(";");
         Map<String, Float> values = new HashMap<>();
         for (String infoField : infoFields) {
@@ -106,19 +108,17 @@ public class FrequencyDaoTabix implements FrequencyDao {
         return frequencies;
     }
 
-
-    //TODO: make this abstract
+    //add this to the TabixDataSource? List<String> TabixDataSource.query(String chromosome, int start, int end)
     private List<String> getTabixLines(String chromosome, int start, int end) {
         List<String> lines = new ArrayList<>();
         try {
             String line;
-            //TODO test tabixReader.query(chromosome, start, end);
-            TabixReader.Iterator results = tabixReader.query(chromosome + ":" + start + "-" + end);
+            TabixReader.Iterator results = tabixDataSource.query(chromosome + ":" + start + "-" + end);
             while ((line = results.next()) != null) {
                 lines.add(line);
             }
         } catch (IOException e) {
-            logger.error("Unable to read from exomiser tabix file {}", tabixReader.getSource(), e);
+            logger.error("Unable to read from exomiser tabix file {}", tabixDataSource.getSource(), e);
         }
         return lines;
     }
