@@ -53,8 +53,8 @@ public class VariantDataServiceImpl implements VariantDataService {
 
     private static final Logger logger = LoggerFactory.getLogger(VariantDataServiceImpl.class);
 
-    @Autowired
-    private VariantDataDao variantDataDao;
+//    @Autowired
+//    private VariantDataDao variantDataDao;
 
     @Resource(name = "frequencyDaoTabix")
     private FrequencyDao defaultFrequencyDao;

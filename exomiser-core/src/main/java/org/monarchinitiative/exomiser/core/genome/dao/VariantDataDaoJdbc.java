@@ -12,7 +12,6 @@ import org.monarchinitiative.exomiser.core.model.pathogenicity.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.cache.annotation.Cacheable;
-import org.springframework.stereotype.Component;
 
 import javax.sql.DataSource;
 import java.sql.Connection;
@@ -24,7 +23,7 @@ import java.util.*;
 /**
  * @author Jules Jacobsen <j.jacobsen@qmul.ac.uk>
  */
-@Component
+//@Component
 public class VariantDataDaoJdbc implements VariantDataDao {
 
     private static final Logger logger = LoggerFactory.getLogger(VariantDataDaoJdbc.class);
