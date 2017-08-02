@@ -99,18 +99,19 @@ Producing the Tabix files
 ====
 Pathogenicity:
 ```bash
-$ java -XX:+UseG1GC -Xmx6G -jar org.monarchinitiative.exomiser.allelestore.AlleleStoreApplication --working-dir=. --loadDbNsfp=dbNSFPv3.4a.zip --out=exomiser-path.vcf
+$ java -XX:+UseG1GC -Xmx6G -jar exomiser_allele_store-0.0.2.jar --working-dir=. --loadDbNsfp=dbNSFPv3.4a.zip --out=exomiser-path.vcf
 2017-08-02 11:43:04.574  INFO 10968 --- [           main] o.m.e.a.AlleleStoreApplication           : Starting AlleleStoreApplication
 2017-08-02 12:06:20.248  INFO 10968 --- [           main] o.m.exomiser.allelestore.AlleleImporter  : Finished - processed 81191461 variants total in 1393 sec
 2017-08-02 12:06:20.249  INFO 10968 --- [           main] o.m.exomiser.allelestore.AlleleImporter  : Merging alleles to file exomiser-path.vcf
 2017-08-02 12:21:03.761  INFO 10968 --- [           main] o.m.exomiser.allelestore.AlleleImporter  : Done
 2017-08-02 12:21:03.765  INFO 10968 --- [           main] o.m.e.a.AlleleStoreApplication           : Started AlleleStoreApplication in 2280.238 seconds (JVM running for 2280.969)
 
-$ tabix -p vcf exomiser-path.vcf
+$ bgzip exomiser-path.vcf
+$ tabix -p vcf exomiser-path.vcf.gz
 ```
 Frequencies:
 ```bash
-$ java -XX:+UseG1GC -Xmx10G -jar org.monarchinitiative.exomiser.allelestore.AlleleStoreApplication -working-dir=. --loadDbSnp=00-All.vcf.gz --loadExac=ExAC.r0.3.1.sites.vep.vcf.gz --loadEsp=ESP6500SI-V2-SSA137.GRCh38-liftover.snps_indels.vcf.tar.gz --out=exomiser-freq.vcf
+$ java -XX:+UseG1GC -Xmx10G -jar exomiser_allele_store-0.0.2.jar -working-dir=. --loadDbSnp=00-All.vcf.gz --loadExac=ExAC.r0.3.1.sites.vep.vcf.gz --loadEsp=ESP6500SI-V2-SSA137.GRCh38-liftover.snps_indels.vcf.tar.gz --out=exomiser-freq.vcf
 2017-08-02 13:20:47.137  INFO 18088 --- [           main] o.m.e.a.AlleleStoreApplication           : Starting AlleleStoreApplication
 2017-08-02 13:20:48.827  INFO 18088 --- [           main] o.m.exomiser.allelestore.AlleleImporter  : Loading ExAC
 2017-08-02 13:26:12.088  INFO 18088 --- [           main] o.m.exomiser.allelestore.AlleleImporter  : Finished - processed 10195872 variants total in 323 sec
@@ -122,7 +123,8 @@ $ java -XX:+UseG1GC -Xmx10G -jar org.monarchinitiative.exomiser.allelestore.Alle
 2017-08-02 14:49:06.495  INFO 18088 --- [           main] o.m.exomiser.allelestore.AlleleImporter  : Done
 2017-08-02 14:49:06.516  INFO 18088 --- [           main] o.m.e.a.AlleleStoreApplication           : Started AlleleStoreApplication in 5300.418 seconds (JVM running for 5301.153)
 
-$ tabix -p vcf exomiser-freq.vcf
+$ bgzip exomiser-freq.vcf
+$ tabix -p vcf exomiser-freq.vcf.gz
 ```
 
  POMP sample analysis script used
