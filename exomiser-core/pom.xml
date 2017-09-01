@@ -51,29 +51,17 @@
             <artifactId>jblas</artifactId>
             <version>1.2.3</version>
         </dependency>
-        <!--Phenix dependencies:-->
+        <!-- Phenix dependencies -->
         <dependency>
-            <groupId>de.sonumina</groupId>
-            <artifactId>javautil</artifactId>
-            <version>0.0.1</version>
+            <groupId>com.github.phenomics</groupId>
+            <artifactId>ontolib-core</artifactId>
+            <version>${ontolib.version}</version>
         </dependency>
         <dependency>
-            <groupId>ontologizer</groupId>
-            <artifactId>ontologizer</artifactId>
-            <version>0.0.1-SNAPSHOT</version>
+            <groupId>com.github.phenomics</groupId>
+            <artifactId>ontolib-io</artifactId>
+            <version>${ontolib.version}</version>
         </dependency>
-        <!--One day, maybe these can be replaced by the commented out dependencies, once this issue has been closed:-->
-        <!--https://github.com/ontologizer/ontologizerlib/issues/1-->
-        <!--<dependency>-->
-            <!--<groupId>de.ontologizer</groupId>-->
-            <!--<artifactId>ontologizerlib-core</artifactId>-->
-            <!--<version>0.1</version>-->
-        <!--</dependency>-->
-        <!--<dependency>-->
-            <!--<groupId>de.ontologizer</groupId>-->
-            <!--<artifactId>ontologizerlib-io</artifactId>-->
-            <!--<version>0.1</version>-->
-        <!--</dependency>-->
 
         <!--Thymeleaf is a templating engine used for creating the HTML results pages -->
         <dependency>

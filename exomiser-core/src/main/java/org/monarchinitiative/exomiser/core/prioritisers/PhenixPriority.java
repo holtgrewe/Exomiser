@@ -20,404 +20,438 @@
 
 package org.monarchinitiative.exomiser.core.prioritisers;
 
-import hpo.HPOutils;
-import ontologizer.go.*;
-import org.monarchinitiative.exomiser.core.model.Gene;
-import org.monarchinitiative.exomiser.core.prioritisers.util.ScoreDistribution;
-import org.monarchinitiative.exomiser.core.prioritisers.util.ScoreDistributionContainer;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import similarity.SimilarityUtilities;
-import similarity.concepts.ResnikSimilarity;
-import similarity.objects.InformationContentObjectSimilarity;
-import sonumina.math.graph.SlimDirectedGraphView;
+import static java.util.stream.Collectors.toMap;
 
-import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Paths;
-import java.util.*;
+import java.util.AbstractMap;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-import static java.util.stream.Collectors.toMap;
+import org.monarchinitiative.exomiser.core.model.Gene;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import com.github.phenomics.ontolib.formats.hpo.HpoOntology;
+import com.github.phenomics.ontolib.formats.hpo.HpoTerm;
+import com.github.phenomics.ontolib.formats.hpo.HpoTermRelation;
+import com.github.phenomics.ontolib.io.base.TermAnnotationParserException;
+import com.github.phenomics.ontolib.io.obo.hpo.HpoGeneAnnotationParser;
+import com.github.phenomics.ontolib.io.obo.hpo.HpoOboParser;
+import com.github.phenomics.ontolib.ontology.algo.InformationContentComputation;
+import com.github.phenomics.ontolib.ontology.data.ImmutableOntology;
+import com.github.phenomics.ontolib.ontology.data.ImmutableTermId;
+import com.github.phenomics.ontolib.ontology.data.Ontology;
+import com.github.phenomics.ontolib.ontology.data.Term;
+import com.github.phenomics.ontolib.ontology.data.TermAnnotation;
+import com.github.phenomics.ontolib.ontology.data.TermAnnotations;
+import com.github.phenomics.ontolib.ontology.data.TermId;
+import com.github.phenomics.ontolib.ontology.data.TermRelation;
+import com.github.phenomics.ontolib.ontology.scoredist.ObjectScoreDistribution;
+import com.github.phenomics.ontolib.ontology.scoredist.ScoreDistribution;
+import com.github.phenomics.ontolib.ontology.similarity.PrecomputingPairwiseResnikSimilarity;
+import com.github.phenomics.ontolib.ontology.similarity.ResnikSimilarity;
 
 /**
- * Filter variants according to the phenotypic similarity of the specified
- * disease to mouse models disrupting the same gene. We use semantic similarity
- * calculations in the uberpheno.
+ * Variant priotization with the Phenix algorithm.
  *
- * The files required for the constructor of this filter should be downloaded
- * from: {@code http://purl.obolibrary.org/obo/hp/uberpheno/}
- * (HSgenes_crossSpeciesPhenoAnnotation.txt, crossSpeciesPheno.obo)
+ * <p>
+ * Variants are scored using the Phenomizer score which uses Resnik similarity
+ * in the HPO phenotypic abnormality sub ontology and (optionally) p-value
+ * computations based on empirically observed Resnik similarity score
+ * distributions.
+ * </p>
  *
- * @author Sebastian Köhler <dr.sebastian.koehler@gmail.com>
- * @version 0.06 (6 December, 2013)
+ * <p>
+ * For the Phenomizer score, the <tt>hp.obo</tt>file is required along with the
+ * <tt>ALL_SOURCES_ALL_FREQUENCIES_genes_to_phenotype.txt</tt> file. For the
+ * p-value estimation, the empirical score distribution files are required. All
+ * of these files are available through the Human Phenotype Ontology Jenkins
+ * server.
+ * </p>
+ *
+ * <h4>Notes and Open Points</h4>
+ *
+ * <p>
+ * Note that the genes will only be ranked by the normalized score. In the
+ * future, we should also try to rank by p-value.
+ * </p>
+ *
+ * @author Sebastian Koehler <a href=
+ *         "dr.sebastian.koehler@gmail.com">dr.sebastian.koehler@gmail.com</a>
+ * @author Manuel Holtgrewe <a href=
+ *         "manuel.holtgrewe@bihealth.de">manuel.holtgrewe@bihealth.de</a>
  */
-public class PhenixPriority implements Prioritiser {
+public final class PhenixPriority implements Prioritiser {
 
-    private static final Logger logger = LoggerFactory.getLogger(PhenixPriority.class);
+  /** Logger instance to use in this class. */
+  private static final Logger LOGGER = LoggerFactory.getLogger(PhenixPriority.class);
 
-    private static final PriorityType PRIORITY_TYPE = PriorityType.PHENIX_PRIORITY;
+  /**
+   * {@link PriorityType} to label with.
+   */
+  private static final PriorityType PRIORITY_TYPE = PriorityType.PHENIX_PRIORITY;
+
+  /**
+   * The HPO as an {@link ImmutableOntology} object.
+   */
+  private HpoOntology hpo;
+
+  /** The phenotypic abnormality sub ontology. */
+  private Ontology<HpoTerm, HpoTermRelation> abnormalPhenoSubOntology;
+
+  /** The semantic similarity measure used to calculate phenotypic similarity. */
+  private ResnikSimilarity<HpoTerm, HpoTermRelation> resnikSimilarity;
+
+  /** Labels of Entrez gene ID to positively associated terms. */
+  private Map<Integer, Collection<TermId>> entrezGeneIdToTermIds;
+
+  /**
+   * Mapping from query term count to {@link ScoreDistribution}.
+   */
+  private Map<Integer, ScoreDistribution> scoreDistributions;
+
+  /** The score to use if computing a score fails (missing link). */
+  private static final double DEFAULT_SCORE = 0.0;
+
+  /**
+   * The negative log of the p-value to use if computing a score fails (missing
+   * link).
+   */
+  private static final double DEFAULT_NEGATIVE_LOG_P = 0.0;
+
+  /** Links between genes and phenotypes. */
+  private List<TermAnnotation> termToGeneAnnotations;
+
+  /** Whether or not to use symmetric score variant. */
+  private boolean symmetric;
+
+  /**
+   * Path to the directory that has the files needed to calculate the score
+   * distribution.
+   */
+  private String pathPhenixData;
+
+  /**
+   * Create a new instance of the PhenixPriority.
+   *
+   * @param pathPhenixData
+   *          Path to directory with Phenix data ({@code hp.obo},
+   *          {@code ALL_SOURCES_ALL_FREQUENCIES_genes_to_phenotype.txt}, and
+   *          {@code phenix_score_dist.txt} file.
+   * @param symmetric
+   *          Flag to indicate if the semantic similarity score should be
+   *          calculated using the symmetric formula.
+   */
+  public PhenixPriority(String pathPhenixData, boolean symmetric) {
+    LOGGER.info("Constructing Phenix Priotizer...");
+    if (!pathPhenixData.endsWith(File.separator)) {
+      pathPhenixData += File.separator;
+    }
+    this.pathPhenixData = pathPhenixData;
+    this.symmetric = symmetric;
+
+    this.loadHpoData();
+    this.buildResnikSimilarity();
+    LOGGER.info("Done constructing Phenix Priotizer.");
+  }
+
+  /**
+   * Stub constructor, used for testing only.
+   * 
+   * @param symmetric
+   */
+  protected PhenixPriority(boolean symmetric) {
+    this.symmetric = symmetric;
+  }
+
+  /**
+   * Load the HPO data from <tt>hp.obo</tt> and
+   * <tt>ALL_SOURCES_ALL_FREQUENCIES_genes_to_phenotype.txt</tt>.
+   *
+   * <p>
+   * Will set {@link #hpo}, {@link #abnormalPhenoSubOntology}, and
+   * {@link #entrezGeneIdToTerms} as a side effect. These are later used by
+   * {@link #buildResnikSimilarity()} for building the Resnik similarity
+   * computation.
+   * </p>
+   */
+  private void loadHpoData() {
+    // Load HPO data from OBO file.
+    final String pathHpoObo = this.pathPhenixData + "hp.obo";
+    LOGGER.info("Loading OBO file {} ...", pathHpoObo);
+    try {
+      hpo = new HpoOboParser(new File(pathHpoObo)).parse();
+    } catch (IOException e) {
+      throw new PhenixException("Problem loading hp.obo file", e);
+    }
+    // Extract phenotypic abnormality sub ontology.
+    abnormalPhenoSubOntology = hpo.getPhenotypicAbnormalitySubOntology();
+    LOGGER.info("Done loading OBO file.");
+
+    // Load file with gene-to-phenotype links.
+    final String pathGeneToTermLink = this.pathPhenixData + "ALL_SOURCES_ALL_FREQUENCIES_genes_to_phenotype.txt";
+    LOGGER.info("Loading gene-to-phenotype file {} ...", pathGeneToTermLink);
+    final File fileGeneToTermLink = new File(pathGeneToTermLink);
+    termToGeneAnnotations = new ArrayList<>();
+    try (HpoGeneAnnotationParser parser = new HpoGeneAnnotationParser(fileGeneToTermLink)) {
+      while (parser.hasNext()) {
+        termToGeneAnnotations.add(parser.next());
+      }
+    } catch (IOException | TermAnnotationParserException e) {
+      throw new PhenixException("Problem reading gene-to-phenotype file", e);
+    }
+    // Convert term-to-gene annotations to mapping with gene-to-terms information.
+    entrezGeneIdToTermIds = TermAnnotations
+        .constructTermLabelToAnnotationsMap(abnormalPhenoSubOntology, termToGeneAnnotations).entrySet().stream()
+        .map(e -> {
+          final int intKey = Integer.parseInt(e.getKey().substring("ENTREZ:".length()));
+          return new AbstractMap.SimpleEntry<Integer, Collection<TermId>>(intKey, e.getValue());
+        }).collect(Collectors.toMap(e -> e.getKey(), e -> e.getValue()));
+    LOGGER.info("Done loading gene-to-phenotype file");
+  }
+
+  /**
+   * Build the Resnik similarity object and perform information content
+   * precomputation.
+   */
+  private void buildResnikSimilarity() {
+    LOGGER.info("Performing IC precomputation...");
+    final InformationContentComputation<? extends Term, ? extends TermRelation> icPrecomputation = new InformationContentComputation<>(
+        abnormalPhenoSubOntology);
+    final Map<TermId, Collection<String>> termLabels = TermAnnotations
+        .constructTermAnnotationToLabelsMap(abnormalPhenoSubOntology, termToGeneAnnotations);
+    final Map<TermId, Double> termToIc = icPrecomputation.computeInformationContent(termLabels);
+    LOGGER.info("Done precomputing IC.");
+
+    LOGGER.info("Performing Resnik precomputation...");
+    final int numThreads = 1; // TODO: get from options?
+    resnikSimilarity = new ResnikSimilarity<>(
+        new PrecomputingPairwiseResnikSimilarity<>(abnormalPhenoSubOntology, termToIc, numThreads), symmetric);
+    LOGGER.info("Done with Resnik precomputation.");
+
+    // TODO: load empirical score distributions.
+    scoreDistributions = new HashMap<>();
+  }
+
+  /**
+   * @return flag to output results of filtering against Phenix.
+   */
+  @Override
+  public PriorityType getPriorityType() {
+    return PRIORITY_TYPE;
+  }
+
+  @Override
+  public Stream<PhenixPriorityResult> prioritise(List<String> hpoIds, List<Gene> genes) {
+    if (hpoIds.isEmpty()) {
+      throw new PhenixException("Please supply some HPO terms. PhenIX is unable to prioritise genes without these.");
+    }
+
+    // Translate HPO term IDs to TermId objects, remove duplicates.
+    LOGGER.info("Creating HPO query terms from {}", hpoIds);
+    final List<TermId> hpoQueryTerms = makeHpoQueryTerms(hpoIds);
+    LOGGER.info("Created HPO query terms {}", hpoQueryTerms);
+
+    // Compute Resnik similarity scores.
+    final Map<Gene, PhenixScore> geneScores = genes.stream()
+        .collect(toMap(Function.identity(), scoreGene(hpoQueryTerms)));
+
+    // Compute normalization factor.
+    final double maxSemSimScore = geneScores.values().stream().mapToDouble(PhenixScore::getSemanticSimilarityScore)
+        .max().orElse(DEFAULT_SCORE);
+    final double normalisationFactor = calculateNormalisationFactor(maxSemSimScore);
+    LOGGER.info("Similarity computations in HPO done for {} genes", genes.size());
+
+    // TODO(holtgrewe): Perform multiple testing correction correction to p values.
+    return geneScores.entrySet().stream().map(entry -> {
+      final Gene gene = entry.getKey();
+      final PhenixScore phenixScore = entry.getValue();
+      final double score = phenixScore.getSemanticSimilarityScore() * normalisationFactor;
+      return new PhenixPriorityResult(gene.getEntrezGeneID(), gene.getGeneSymbol(), score,
+          phenixScore.getSemanticSimilarityScore(), phenixScore.getNegativeLogP());
+    });
+  }
+
+  /**
+   * Convert list of {@link String} HPO term IDs to a {@link List} of
+   * {@link TermId}s.
+   *
+   * @param hpoIds
+   *          String HPO term IDS to convert.
+   * @return {@link TermId}s after translation.
+   */
+  private List<TermId> makeHpoQueryTerms(List<String> hpoIds) {
+    // Note that algorithm is O(n^2) but in practice arrays are *fast*.
+    final List<TermId> result = new ArrayList<>();
+    for (String hpoId : hpoIds) {
+      final TermId termId = hpo.getPrimaryTermId(ImmutableTermId.constructWithPrefix(hpoId));
+      if (termId != null && !result.contains(termId)) {
+        result.add(termId);
+      }
+    }
+    return result;
+  }
+
+  /**
+   * Build {@link Function} for computing gene similarities to the list of query
+   * {@link TermId}s.
+   *
+   * @param queryTermIds
+   *          {@link TermId}s from the query.
+   * @return {@link PhenixScore} with score information of this object.
+   */
+  private Function<Gene, PhenixScore> scoreGene(List<TermId> queryTermIds) {
+    return gene -> {
+      // Get the TermIds that are associated with the given Entrez Gene; short-circuit
+      // if the gene is not annotated with any HPO terms.
+      final Collection<TermId> geneTermIds = entrezGeneIdToTermIds.get(gene.getEntrezGeneID());
+      if (geneTermIds == null) {
+        return new PhenixScore(DEFAULT_SCORE, DEFAULT_NEGATIVE_LOG_P);
+      }
+
+      // Compute the semantic similarity score using Resnik similarity.
+      final double score = resnikSimilarity.computeScore(queryTermIds, geneTermIds);
+      if (Double.isNaN(score)) {
+        LOGGER.error("Score was NaN for geneID {} (query terms: {})", gene.getEntrezGeneID(), queryTermIds);
+      }
+
+      // Interpolate the empirical p value.
+      final ObjectScoreDistribution scoreDist;
+      if (scoreDistributions.containsKey(queryTermIds.size())) {
+        scoreDist = scoreDistributions.get(queryTermIds.size()).getObjectScoreDistribution(gene.getEntrezGeneID());
+      } else {
+        scoreDist = null;
+      }
+      final double negLogP;
+      if (scoreDist == null) {
+        negLogP = DEFAULT_NEGATIVE_LOG_P;
+      } else {
+        negLogP = -1 * Math.log(scoreDist.estimatePValue(score));
+      }
+
+      return new PhenixScore(score, negLogP);
+    };
+  }
+
+  /**
+   * The gene relevance scores are to be normalized to lie between zero and one.
+   *
+   * <p>
+   * This function, which relies upon the variable {@link #maxSemSim} being set in
+   * {@link #scoreGene}, divides each score by {@link #maxSemSim}, which has the
+   * effect of putting the phenomizer scores in the range [0..1]. Note that this
+   * is not the same as rank normalization!
+   * </p>
+   */
+  private double calculateNormalisationFactor(double maxSemSimScore) {
+    if (maxSemSimScore < 1) {
+      return 1.0;
+    } else {
+      return 1.0 / maxSemSimScore;
+    }
+  }
+
+  /**
+   * Exception class thrown on problems in Phenix priotizer.
+   */
+  private static class PhenixException extends RuntimeException {
+
+    /** UID for serialization. */
+    private static final long serialVersionUID = 1L;
+
     /**
-     * The HPO as Ontologizer-Ontology object
-     */
-    private Ontology hpo;
-
-    /**
-     * The semantic similarity measure used to calculate phenotypic similarity
-     */
-    private InformationContentObjectSimilarity similarityMeasure;
-
-    private static final double DEFAULT_SCORE = 0;
-
-    private Map<String, List<Term>> geneId2annotations;
-
-    private boolean symmetric;
-    /**
-     * Path to the directory that has the files needed to calculate the score
-     * distribution.
-     */
-    private String scoredistributionFolder;
-
-//counters for stats
-    /**
-     * A counter of the number of genes that could not be found in the database
-     * as being associated with a defined disease gene.
-     */
-    private int offTargetGenes = 0;
-    /**
-     * Total number of genes used for the query, including genes with no
-     * associated disease.
-     */
-    private int analysedGenes;
-    /**
-     * Keeps track of the maximum semantic similarity score to date
-     */
-    private double maxSemSim = 0d;
-
-
-    /**
-     * Create a new instance of the PhenixPriority.
+     * Construct with message.
      *
-     * @param scoreDistributionFolder Folder which contains the score
-     * distributions (e.g. 3.out, 3_symmetric.out, 4.out, 4_symmetric.out). It
-     * must also contain the files hp.obo (obtained from
-     * {@code http://compbio.charite.de/hudson/job/hpo/}) and
-     * ALL_SOURCES_ALL_FREQUENCIES_genes_to_phenotype.txt-file (obtained from
-     * {@code http://compbio.charite.de/hudson/job/hpo.annotations.monthly/lastSuccessfulBuild/artifact/annotation/}).
-     * @param symmetric Flag to indicate if the semantic similarity score should
-     * be calculated using the symmetrix formula.
-     * @see <a href="http://purl.obolibrary.org/obo/hp/uberpheno/">Uberpheno
-     * Hudson page</a>
+     * @param message
+     *          Message text.
      */
-    public PhenixPriority(String scoreDistributionFolder, boolean symmetric) {
-
-        if (!scoreDistributionFolder.endsWith(File.separator)) {
-            scoreDistributionFolder += File.separator;
-        }
-        this.scoredistributionFolder = scoreDistributionFolder;
-        this.symmetric = symmetric;
-
-        String hpoOboFile = String.format("%s%s", scoreDistributionFolder, "hp.obo");
-        String hpoAnnotationFile = String.format("%s%s", scoreDistributionFolder, "ALL_SOURCES_ALL_FREQUENCIES_genes_to_phenotype.txt");
-        //The phenixData directory must contain the files "hp.obo", "ALL_SOURCES_ALL_FREQUENCIES_genes_to_phenotype.txt"
-        //as well as the score distribution files "*.out", all of which can be downloaded from the HPO hudson server.
-        this.hpo = parseOntology(hpoOboFile);
-        //The HPO as SlimDirectedGraph (fast access to ancestors etc.)
-        SlimDirectedGraphView<Term> hpoSlim = hpo.getSlimGraphView();
-        this.geneId2annotations = parseAnnotations(hpoAnnotationFile, hpo, hpoSlim);
-        this.similarityMeasure = calculateInformationContentSimilarityMeasures(symmetric, hpo, hpoSlim, geneId2annotations);
+    private PhenixException(String message) {
+      super(message);
     }
 
     /**
-     * STUB CONSTRUCTOR - ONLY USED FOR TESTING PURPOSES TO AVOID NULL POINTERS FROM ORIGINAL CONSTRUCTOR. DO NOT USE FOR PRODUCTION CODE!!!!
-     * @param symmetric
-     */
-    protected PhenixPriority(boolean symmetric) {
-        this.symmetric = symmetric;
-    }
-
-    private InformationContentObjectSimilarity calculateInformationContentSimilarityMeasures(boolean symmetric, Ontology hpo, SlimDirectedGraphView<Term> hpoSlim, Map<String, List<Term>> geneId2annotations) {
-        Map<Term, Double> term2ic = calculateTermIC(hpo, hpoSlim, geneId2annotations);
-        ResnikSimilarity resnik = new ResnikSimilarity(hpo, (HashMap<Term, Double>) term2ic);
-        return new InformationContentObjectSimilarity(resnik, symmetric, false);
-    }
-
-    /**
-     * Parses the human-phenotype-ontology.obo file (or equivalently, the hp.obo
-     * file from our Hudosn server).
+     * Construct with message and causing {@link Throwable}.
      *
-     * @param hpoOboFile path to the hp.obo file.
+     * @param message
+     *          Message text.
+     * @param cause
+     *          Causing {@link Throwable}.
      */
-    private Ontology parseOntology(String hpoOboFile) {
-        OBOParser oboParser = new OBOParser(hpoOboFile, OBOParser.PARSE_XREFS);
-
-        try {
-            String parseInfo = oboParser.doParse();
-            logger.info(parseInfo);
-        } catch (IOException | OBOParserException e) {
-            logger.error("Error parsing HPO OBO file", e);
-        }
-
-        TermContainer termContainer = new TermContainer(oboParser.getTermMap(), oboParser.getFormatVersion(), oboParser.getDate());
-        Ontology hpoOntology = new Ontology(termContainer);
-        hpoOntology.setRelevantSubontology(termContainer.get(HPOutils.organAbnormalityRootId).getName());
-        return hpoOntology;
+    private PhenixException(String message, Throwable cause) {
+      super(message, cause);
     }
 
+  }
+
+  // TODO move this to the messages
+  // /**
+  // * @return an ul list with summary of phenomizer prioritization.
+  // */
+  // @Override
+  // public String getHTMLCode() {
+  // String s = String.format("Phenomizer: %d genes were evaluated; no phenotype
+  // data available for %d of them",
+  // this.analysedGenes, this.offTargetGenes);
+  // String t = null;
+  // if (symmetric) {
+  // t = String.format("Symmetric Phenomizer query with %d terms was performed",
+  // this.numberQueryTerms);
+  // } else {
+  // t = String.format("Asymmetric Phenomizer query with %d terms was performed",
+  // this.numberQueryTerms);
+  // }
+  // String u = String.format("Maximum semantic similarity score: %.2f, maximum
+  // negative log. of p-value: %.2f", this.maxSemSim, this.maxNegLogP);
+  // return String.format("<ul><li>%s</li><li>%s</li><li>%s</li></ul>\n", s, t,
+  // u);
+  //
+  // }
+
+  /**
+   * Helper record class for storing pair of score and neg. log. p-value.
+   */
+  private static final class PhenixScore {
+
+    /** Semantic similarity score. */
+    private final double semanticSimilarityScore;
+
+    /** Negative logarithm of the p-value. */
+    private final double negativeLogP;
+
     /**
-     * Parse the HPO phenotype annotation file (e.g., phenotype_annotation.tab).
-     * The point of this is to get the links between diseases and HPO phenotype
-     * terms. The hpoAnnotationFile is The
-     * ALL_SOURCES_ALL_FREQUENCIES_genes_to_phenotype.txt-file
+     * Construct with the given values.
      *
-     * @param hpoAnnotationFile path to the file
+     * @param semanticSimilarityScore
+     *          Semantic similarity score.
+     * @param negativeLogP
+     *          Negative logarithm of p-value.
      */
-    private Map<String, List<Term>> parseAnnotations(String hpoAnnotationFile, Ontology hpo, SlimDirectedGraphView<Term> hpoSlim) {
-        Map<String, List<Term>> geneAnnotations = new HashMap<>();
-        logger.info("Parsing Annotations file {}", hpoAnnotationFile);
-
-        try (BufferedReader bufferedReader = Files.newBufferedReader(Paths.get(hpoAnnotationFile))) {
-            String line;
-            while ((line = bufferedReader.readLine()) != null) {
-                if (line.startsWith("#")) {
-                    continue;
-                }
-
-                String[] split = line.split("\t");
-                String entrez = split[0];
-                Term term = null;
-                try {
-                /* split[4] is the HPO term field of an annotation line. */
-                    term = hpo.getTermIncludingAlternatives(split[3]);
-                } catch (IllegalArgumentException e) {
-                    logger.error("Unable to get term for line \n{}\n", line);
-                    logger.error("The offending field was '{}'", split[3]);
-                    for (int k = 0; k < split.length; ++k) {
-                        logger.error("{} '{}'", k, split[k]);
-                    }
-                    logger.error("", e);
-                }
-                if (term != null) {
-                    geneAnnotations.computeIfAbsent(entrez, annotations -> new ArrayList<>()).add(term);
-                }
-            }
-        } catch (IOException e) {
-            logger.error("Error parsing annotation file {}", hpoAnnotationFile, e);
-        }
-
-        // cleanup annotations
-        for (Map.Entry<String, List<Term>> entry : geneAnnotations.entrySet()) {
-            String entrezId = entry.getKey();
-            List<Term> uniqueTerms = entry.getValue().stream().distinct().collect(Collectors.toCollection(ArrayList::new));
-            List<Term> mostSpecificTerms = HPOutils.cleanUpAssociation((ArrayList<Term>) uniqueTerms, hpoSlim, hpo.getRootTerm());
-            geneAnnotations.put(entrezId, mostSpecificTerms);
-        }
-        logger.info("Made HPO annotations for {} genes", geneAnnotations.size());
-        return geneAnnotations;
-    }
-
-    private Map<Term, Double> calculateTermIC(Ontology ontology, SlimDirectedGraphView<Term> hpoSlim, Map<String, List<Term>> geneId2annotations) {
-
-        // prepare IC computation
-        // here we store which objects have been annotated with this term
-        final Map<Term, Set<String>> annotationTerm2geneIds = new HashMap<>();
-        for (Map.Entry<String, List<Term>> entry : geneId2annotations.entrySet()) {
-            String entrezId = entry.getKey();
-            List<Term> annotations = entry.getValue();
-            for (Term annot : annotations) {
-                List<Term> termAndAncestors = hpoSlim.getAncestors(annot);
-                for (Term term : termAndAncestors) {
-                    annotationTerm2geneIds.computeIfAbsent(term, objectsAnnotatedByTerm -> new HashSet<>()).add(entrezId);
-                }
-            }
-        }
-
-        Map<Term, Integer> termFrequencies = annotationTerm2geneIds.entrySet().stream()
-                .collect(toMap(Map.Entry::getKey, entry -> entry.getValue().size()));
-
-        Term root = ontology.getRootTerm();
-        int maxFreq = termFrequencies.get(root);
-        double ICzeroCountTerms = -1 * (Math.log(1 / (double) maxFreq));
-
-        Map<Term, Double> term2informationContent = SimilarityUtilities.caculateInformationContent(maxFreq, (HashMap<Term, Integer>) termFrequencies);
-        int frequencyZeroCounter = 0;
-        for (Term t : ontology) {
-            if (!termFrequencies.containsKey(t)) {
-                ++frequencyZeroCounter;
-                term2informationContent.put(t, ICzeroCountTerms);
-            }
-        }
-
-        logger.info("WARNING: Frequency of {} terms was zero!! Set IC of these to : {}", frequencyZeroCounter, ICzeroCountTerms);
-        return term2informationContent;
+    PhenixScore(double semanticSimilarityScore, double negativeLogP) {
+      this.semanticSimilarityScore = semanticSimilarityScore;
+      this.negativeLogP = negativeLogP;
     }
 
     /**
-     * Flag to output results of filtering against Uberpheno data.
+     * @return Semantic similarity score.
      */
-    @Override
-    public PriorityType getPriorityType() {
-        return PRIORITY_TYPE;
-    }
-
-    @Override
-    public Stream<PhenixPriorityResult> prioritise(List<String> hpoIds, List<Gene> genes) {
-
-        if (hpoIds.isEmpty()) {
-            throw new PhenixException("Please supply some HPO terms. PhenIX is unable to prioritise genes without these.");
-        }
-
-        List<Term> hpoQueryTerms = makeHpoQueryTerms(hpoIds);
-        logger.info("Created HPO query terms {}", hpoQueryTerms);
-
-        ScoreDistributionContainer scoredistributionContainer = new ScoreDistributionContainer(scoredistributionFolder, symmetric, hpoQueryTerms.size());
-
-        Map<Gene, PhenixScore> geneScores = genes.stream().collect(toMap(Function.identity(), scoreGene(hpoQueryTerms, scoredistributionContainer)));
-
-        double maxSemSimScore = geneScores.values().stream().mapToDouble(PhenixScore::getSemanticSimilarityScore).max().orElse(DEFAULT_SCORE);
-        double maxNegLogP = geneScores.values().stream().mapToDouble(PhenixScore::getNegativeLogP).max().orElse(DEFAULT_SCORE);
-        double normalisationFactor = calculateNormalisationFactor(maxSemSimScore);
-
-        logger.info("Data investigated in HPO for {} genes. No data for {} genes", genes.size(), geneId2annotations.keySet().size());
-        return geneScores.entrySet().stream()
-                .map(entry -> {
-                    Gene gene = entry.getKey();
-                    PhenixScore phenixScore = entry.getValue();
-                    double score = phenixScore.getSemanticSimilarityScore() * normalisationFactor;
-                    return new PhenixPriorityResult(gene.getEntrezGeneID(), gene.getGeneSymbol(), score, phenixScore.getSemanticSimilarityScore(), phenixScore.getNegativeLogP());
-                });
-    }
-
-    private List<Term> makeHpoQueryTerms(List<String> hpoIds) {
-        return hpoIds.stream()
-                .map(termIdString -> {
-                    Term term = hpo.getTermIncludingAlternatives(termIdString);
-                    if (term == null) {
-                        logger.error("Unrecognised HPO input term {}. This will not be used in the analysis.", termIdString);
-                    }
-                    return term;
-                })
-                .filter(Objects::nonNull)
-                .distinct()
-                .collect(Collectors.toList());
-    }
-
-    private Function<Gene, PhenixScore> scoreGene(List<Term> queryTerms, ScoreDistributionContainer scoredistributionContainer) {
-        return gene -> {
-            int entrezGeneId = gene.getEntrezGeneID();
-            String geneIdString = Integer.toString(entrezGeneId);
-
-            if (!geneId2annotations.containsKey(geneIdString)) {
-                return new PhenixScore(DEFAULT_SCORE, DEFAULT_SCORE);
-            }
-
-            List<Term> geneAnnotations = geneId2annotations.get(geneIdString);
-            double semanticSimilarityScore = similarityMeasure.computeObjectSimilarity( (ArrayList<Term>) queryTerms, (ArrayList<Term>) geneAnnotations);
-
-            if (Double.isNaN(semanticSimilarityScore)) {
-                logger.error("Score was NaN for geneId: {} : ", entrezGeneId, queryTerms);
-            }
-            ScoreDistribution scoreDist = scoredistributionContainer.getDistribution(geneIdString);
-
-            double negLogP = calculateNegLogP(semanticSimilarityScore, scoreDist);
-            return new PhenixScore(semanticSimilarityScore, negLogP);
-        };
-    }
-
-    private double calculateNegLogP(double semanticSimilarityScore, ScoreDistribution scoreDist) {
-        if (scoreDist == null) {
-            return DEFAULT_SCORE;
-        } else {
-            double rawPvalue = scoreDist.getPvalue(semanticSimilarityScore, 1000d);
-            // Negative log of p value : most significant get highest score
-            return Math.log(rawPvalue) * -1.0;
-        }
+    double getSemanticSimilarityScore() {
+      return semanticSimilarityScore;
     }
 
     /**
-     * The gene relevance scores are to be normalized to lie between zero and
-     * one. This function, which relies upon the variable {@link #maxSemSim}
-     * being set in {@link #scoreGene}, divides each score by
-     * {@link #maxSemSim}, which has the effect of putting the phenomizer scores
-     * in the range [0..1]. Note that for now we are using the semantic
-     * similarity scores, but we should also try the P value version (TODO).
-     * Note that this is not the same as rank normalization!
+     * @return Negative logarithm of the p-value.
      */
-    private double calculateNormalisationFactor(double maxSemSimScore) {
-        if (maxSemSimScore < 1) {
-            return 1d;
-        }
-        return 1d / maxSemSimScore;
+    double getNegativeLogP() {
+      return negativeLogP;
     }
 
+  }
 
-    private static class PhenixException extends RuntimeException {
-
-        private PhenixException(String message) {
-            super(message);
-        }
-    }
-
-//TODO move this to the messages
-//    /**
-//     * @return an ul list with summary of phenomizer prioritization.
-//     */
-//    @Override
-//    public String getHTMLCode() {
-//        String s = String.format("Phenomizer: %d genes were evaluated; no phenotype data available for %d of them",
-//                this.analysedGenes, this.offTargetGenes);
-//        String t = null;
-//        if (symmetric) {
-//            t = String.format("Symmetric Phenomizer query with %d terms was performed", this.numberQueryTerms);
-//        } else {
-//            t = String.format("Asymmetric Phenomizer query with %d terms was performed", this.numberQueryTerms);
-//        }
-//        String u = String.format("Maximum semantic similarity score: %.2f, maximum negative log. of p-value: %.2f", this.maxSemSim, this.maxNegLogP);
-//        return String.format("<ul><li>%s</li><li>%s</li><li>%s</li></ul>\n", s, t, u);
-//
-//    }
-
-    @Override
-    public boolean equals(Object o) {
-        if (this == o) return true;
-        if (o == null || getClass() != o.getClass()) return false;
-        PhenixPriority that = (PhenixPriority) o;
-        return symmetric == that.symmetric;
-    }
-
-    @Override
-    public int hashCode() {
-        return Objects.hash(PhenixPriority.class.getName(), symmetric);
-    }
-
-    @Override
-    public String toString() {
-        return "PhenixPriority{" +
-                "symmetric=" + symmetric +
-                '}';
-    }
-
-    //Tuple-esq container
-    private class PhenixScore {
-
-        private final double semanticSimilarityScore;
-        private final double negativeLogP;
-
-        PhenixScore(double semanticSimilarityScore, double negativeLogP) {
-            this.semanticSimilarityScore = semanticSimilarityScore;
-            this.negativeLogP = negativeLogP;
-        }
-
-        double getSemanticSimilarityScore() {
-            return semanticSimilarityScore;
-        }
-
-        double getNegativeLogP() {
-            return negativeLogP;
-        }
-    }
 }
